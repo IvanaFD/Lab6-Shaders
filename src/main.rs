@@ -18,6 +18,9 @@ use vertex::Vertex;
 
 const WIDTH: usize = 800;
 const HEIGHT: usize = 600;
+const MOON_SIZE: f32 = 0.2;
+const MOON_ORBIT: f32 = 1.45;
+const MOON_SPEED: f32 = 0.3;
 
 pub struct Uniforms {
     pub model_matrix: Matrix,
@@ -32,40 +35,58 @@ pub struct Uniforms {
     pub body: Body,
 }
 
-fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniforms) {
+fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &mut Uniforms, objects: &[(Matrix, Body)]) {
     framebuffer.clear();
-    let transformed: Vec<Vertex> = vertices
-        .iter()
-        .map(|v| pipeline::vertex_shader(v, uniforms))
-        .collect();
 
-    let mut visible: Vec<(usize, fragment::Fragment)> = Vec::new();
-    for tri in transformed.chunks_exact(3) {
-        if pipeline::is_back_face(tri, uniforms) {
-            continue;
-        }
-        for fragment in triangle::triangle(&tri[0], &tri[1], &tri[2], uniforms) {
-            let index = fragment.position.y as usize * framebuffer.width + fragment.position.x as usize;
-            if fragment.depth < framebuffer.depths[index] {
-                framebuffer.depths[index] = fragment.depth;
-                visible.push((index, fragment));
+    let mut visible: Vec<(usize, fragment::Fragment, Body)> = Vec::new();
+    for &(model_matrix, body) in objects {
+        uniforms.model_matrix = model_matrix;
+        let transformed: Vec<Vertex> = vertices
+            .iter()
+            .map(|v| pipeline::vertex_shader(v, uniforms))
+            .collect();
+        for tri in transformed.chunks_exact(3) {
+            if pipeline::is_back_face(tri, uniforms) {
+                continue;
+            }
+            for fragment in triangle::triangle(&tri[0], &tri[1], &tri[2], uniforms) {
+                let index = fragment.position.y as usize * framebuffer.width + fragment.position.x as usize;
+                if fragment.depth < framebuffer.depths[index] {
+                    framebuffer.depths[index] = fragment.depth;
+                    visible.push((index, fragment, body));
+                }
             }
         }
     }
-    visible.retain(|(index, fragment)| fragment.depth == framebuffer.depths[*index]);
+    visible.retain(|(index, fragment, _)| fragment.depth == framebuffer.depths[*index]);
 
+    let uniforms: &Uniforms = uniforms;
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let chunk = visible.len().div_ceil(threads).max(1);
     let colors: Vec<Vec<Vector3>> = std::thread::scope(|scope| {
         let handles: Vec<_> = visible
             .chunks(chunk)
-            .map(|part| scope.spawn(move || part.iter().map(|(_, f)| fragment_shader(f, uniforms)).collect()))
+            .map(|part| {
+                scope.spawn(move || part.iter().map(|(_, f, body)| fragment_shader(f, uniforms, *body)).collect())
+            })
             .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
-    for ((index, _), color) in visible.iter().zip(colors.into_iter().flatten()) {
+    for ((index, _, _), color) in visible.iter().zip(colors.into_iter().flatten()) {
         framebuffer.set_color(*index, color);
     }
+}
+
+// El cuerpo elegido y, si es el planeta rocoso, su luna en órbita
+fn scene(base: Matrix, body: Body, time: f32) -> Vec<(Matrix, Body)> {
+    let mut objects = vec![(base, body)];
+    if body == Body::Rocky {
+        let angle = time * MOON_SPEED;
+        let position = Vector3::new(angle.cos() * MOON_ORBIT, angle.sin() * MOON_ORBIT * 0.2, angle.sin() * MOON_ORBIT);
+        let moon = base * Matrix::scale(MOON_SIZE, MOON_SIZE, MOON_SIZE) * Matrix::translate(position.x, position.y, position.z);
+        objects.push((moon, Body::Moon));
+    }
+    objects
 }
 
 fn light_direction(angle: f32) -> Vector3 {
@@ -122,7 +143,8 @@ fn main() {
             for (angle, suffix) in [(light_angle, ""), (2.2, "_lado_oscuro")] {
                 uniforms.light_dir = light_direction(angle);
                 let start = std::time::Instant::now();
-                render(&mut framebuffer, &vertices, &uniforms);
+                let objects = scene(model_matrix, uniforms.body, uniforms.time);
+                render(&mut framebuffer, &vertices, &mut uniforms, &objects);
                 if suffix.is_empty() {
                     println!("{}: {:.1} ms", body.name(), start.elapsed().as_secs_f32() * 1000.0);
                 }
@@ -197,7 +219,8 @@ fn main() {
         uniforms.camera_position = camera.eye();
         uniforms.light_dir = light_direction(light_angle);
 
-        render(&mut framebuffer, &vertices, &uniforms);
+        let objects = scene(model_matrix, uniforms.body, uniforms.time);
+        render(&mut framebuffer, &vertices, &mut uniforms, &objects);
 
         let hud = vec![
             format!("{}  |  FPS {}", uniforms.body.name(), window.get_fps()),
