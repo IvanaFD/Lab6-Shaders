@@ -1,4 +1,5 @@
 pub mod noise_helpers;
+pub mod star;
 
 use raylib::prelude::*;
 
@@ -34,6 +35,9 @@ pub fn smoothstep(start: f32, end: f32, value: f32) -> f32 {
 
 // Punto de entrada: elige el shader según el cuerpo activo
 pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
+    if uniforms.body == Body::Star {
+        return star::crystal_star(fragment, uniforms);
+    }
     let base = match uniforms.body {
         Body::Star => Vector3::new(1.0, 0.7, 0.2),
         Body::Rocky => Vector3::new(0.3, 0.6, 0.4),
