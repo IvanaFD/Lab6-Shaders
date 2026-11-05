@@ -2,7 +2,7 @@
 // grietas incandescentes en el lado nocturno y nubes de ceniza con sus sombras.
 use super::{
     mix,
-    noise_helpers::{fbm, fbm_octaves, hash, hash3, sample},
+    noise_helpers::{cellular, fbm, fbm_octaves, hash, hash3, sample},
     smoothstep,
 };
 use crate::{Uniforms, fragment::Fragment};
@@ -16,6 +16,14 @@ const LAVA_LEVEL: f32 = 0.38;
 const RIVER_WIDTH: f32 = 0.018;
 // Ancho de la obsidiana alrededor de la lava (lava enfriada)
 const OBSIDIAN_WIDTH: f32 = 0.04;
+// Brillo de la obsidiana (exponente especular: más = reflejo más pequeño y nítido)
+const OBSIDIAN_SHININESS: f32 = 110.0;
+// Ancho de las grietas incandescentes del lado nocturno
+const CRACK_WIDTH: f32 = 0.035;
+// Rugosidad fina de la tierra en el relieve (0 = lisa)
+const SOIL_ROUGHNESS: f32 = 1.0;
+// Tamaño de las placas de tierra seca agrietada (más = placas más pequeñas)
+const CRACK_CELL_SCALE: f32 = 18.0;
 // Tamaño de las celdas de volcanes y fracción de celdas que tienen volcán
 const VOLCANO_SCALE: f32 = 2.2;
 const VOLCANO_DENSITY: f32 = 0.65;
@@ -32,11 +40,12 @@ const LAVA_HOT: Vector3 = Vector3::new(1.0, 0.82, 0.3);
 const LAVA: Vector3 = Vector3::new(0.95, 0.28, 0.03);
 const CRUST: Vector3 = Vector3::new(0.22, 0.04, 0.02);
 const OBSIDIAN: Vector3 = Vector3::new(0.035, 0.03, 0.045);
-const DARK_ROCK: Vector3 = Vector3::new(0.15, 0.13, 0.12);
-const STONE: Vector3 = Vector3::new(0.27, 0.24, 0.22);
-const ASH: Vector3 = Vector3::new(0.42, 0.4, 0.38);
-const CLOUD: Vector3 = Vector3::new(0.55, 0.54, 0.53);
-const SMOKE: Vector3 = Vector3::new(0.3, 0.29, 0.29);
+const DARK_ROCK: Vector3 = Vector3::new(0.15, 0.14, 0.13);
+const STONE: Vector3 = Vector3::new(0.33, 0.31, 0.29);
+const OCHRE: Vector3 = Vector3::new(0.42, 0.37, 0.32);
+const ASH: Vector3 = Vector3::new(0.46, 0.45, 0.43);
+const CLOUD: Vector3 = Vector3::new(0.7, 0.69, 0.68);
+const SMOKE: Vector3 = Vector3::new(0.42, 0.41, 0.4);
 
 // Volcanes: algunas celdas de una malla 3D tienen un volcán en un punto aleatorio,
 // cada uno con su tamaño. Se revisan las celdas vecinas para que los conos no se corten.
@@ -108,7 +117,10 @@ fn river(field: &RiverField, land: f32, extra: f32) -> f32 {
 // así que se deja fuera para que el bump sea barato.)
 fn height(noise: &OpenSimplex, p: Vector3) -> f32 {
     let (cone, crater) = volcano(p);
-    cone.powf(1.5) * 0.5 - crater * 0.3 + fbm_octaves(noise, p * 5.0, 2) * 0.15
+    cone.powf(1.5) * 0.5 - crater * 0.3
+        + fbm_octaves(noise, p * 5.0, 2) * 0.15
+        // rugosidad fina de la tierra: la luz revela el grano
+        + fbm_octaves(noise, p * 22.0, 2) * 0.035 * SOIL_ROUGHNESS
 }
 
 // Gira un punto alrededor del eje y
@@ -174,19 +186,29 @@ pub fn volcanic(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let obsidian_amount = near_sea.max(near_river).max(smoothstep(0.2, 0.5, crater));
     let hills = t + 0.5 - LAVA_LEVEL;
     //    Ceniza: cubre las partes altas y las laderas de los volcanes
-    let ash_amount = smoothstep(0.45, 0.6, hills + fbm_octaves(noise, p * 9.0, 2) * 0.3 - 0.12);
+    let ash_amount = smoothstep(0.52, 0.68, hills + fbm_octaves(noise, p * 9.0, 2) * 0.3 - 0.12);
 
     // 3. Cada material responde distinto a la luz
     // Piedra y ceniza: mate (solo difusa)
-    let rock = mix(DARK_ROCK, STONE, smoothstep(0.4, 0.7, grain));
-    let rock = mix(rock, ASH, ash_amount);
+    // Tierra en varias escalas: manchas grandes, parches ocres, suelo agrietado y grano fino
+    let rock = mix(DARK_ROCK, STONE, smoothstep(0.3, 0.7, grain));
+    let patches = fbm_octaves(noise, p * 16.0 + Vector3::new(4.0, 1.0, 7.0), 2);
+    let rock = mix(rock, OCHRE, smoothstep(0.5, 0.75, patches) * 0.5);
+    //   tierra seca agrietada: bordes entre celdas (ruido celular), más marcada en las planicies
+    let (c1, c2, _) = cellular(p * CRACK_CELL_SCALE);
+    let mud_crack = (1.0 - smoothstep(0.0, 0.06, c2 - c1)) * (1.0 - smoothstep(0.1, 0.3, cone));
+    let rock = rock * (1.0 - mud_crack * 0.55);
+    //   grano fino tipo grava
+    let speckle = sample(noise, p * 70.0) * 0.5 + 0.5;
+    let rock = rock * (0.82 + speckle * 0.3);
+    let rock = mix(rock, ASH * (0.85 + speckle * 0.25), ash_amount);
     // Laderas de los volcanes: basalto oscuro con vetas de ceniza que bajan del cráter
     let streaks = smoothstep(0.55, 0.75, fbm_octaves(noise, p * 14.0, 2));
     let rock = mix(rock, mix(DARK_ROCK * 0.7, ASH, streaks * 0.6), smoothstep(0.1, 0.5, cone));
     let rock_lit = rock * (0.04 + diffuse * 0.96);
     // Obsidiana: casi negra, reflejo especular nítido + reflejo de borde (Fresnel)
     let fresnel = (1.0 - bumped.dot(view).max(0.0)).powf(4.0);
-    let spec = bumped.dot(half).max(0.0).powf(110.0) * smoothstep(0.0, 0.1, diffuse);
+    let spec = bumped.dot(half).max(0.0).powf(OBSIDIAN_SHININESS) * smoothstep(0.0, 0.1, diffuse);
     let obsidian_lit = OBSIDIAN * (0.04 + diffuse) + Vector3::new(0.85, 0.8, 1.0) * (spec * 1.6)
         + Vector3::new(0.35, 0.25, 0.45) * fresnel * diffuse.max(0.15) * 0.5;
     let mut surface = mix(rock_lit, obsidian_lit, obsidian_amount);
@@ -194,7 +216,7 @@ pub fn volcanic(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     // 4. Sombras de nubes: se busca la nube que tapa la luz sobre este punto
     let shadow_point = (p + light * (CLOUD_HEIGHT / n.dot(light).max(0.15))).normalized();
     let shadow = cloud_mask(noise, shadow_point, time);
-    surface = surface * (1.0 - shadow * 0.75);
+    surface = surface * (1.0 - shadow * 0.85);
 
     // 5. Lava: emisiva (no depende de la luz); su corteza fluye con el tiempo
     let flow = fbm_octaves(noise, p * 7.0 + Vector3::new(time * 0.12, time * 0.05, -time * 0.08), 3);
@@ -207,7 +229,7 @@ pub fn volcanic(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
 
     // 6. Lado nocturno: grietas incandescentes que solo se ven sin luz
     let night = 1.0 - smoothstep(-0.05, 0.2, n.dot(light));
-    let crack = 1.0 - smoothstep(0.0, 0.035, sample(noise, p * 8.0).abs());
+    let crack = 1.0 - smoothstep(0.0, CRACK_WIDTH, sample(noise, p * 8.0).abs());
     let crack = crack * (1.0 - lava_amount) * (1.0 - ash_amount * 0.7);
     surface = surface + LAVA * crack * night * 1.2;
 
