@@ -21,7 +21,7 @@ cargo run --release -- --captura
 | Tecla | Acción |
 |---|---|
 | **1** | Estrella |
-| **2** | Planeta rocoso |
+| **2** | Planeta rocoso (con su luna) |
 | **3** | Gigante gaseoso |
 | **W A S D** / flechas | Orbitar la cámara |
 | **Q** / **E** | Acercar / alejar |
@@ -122,9 +122,32 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 | `GLOW_STRENGTH` | brillo dorado nocturno |
 | `LABEL_WIDTH` | ancho de la etiqueta |
 
+### Luna del planeta rocoso
+
+`src/shaders/moon.rs`, `pale_moon` · órbita en `src/main.rs`, `scene`
+
+![Luna](capturas/rocoso.png)
+
+Luna pálida, entre amarillo beige y blanco, con superficie rocosa llena de cráteres. Es otra instancia de la misma esfera: se escala y se traslada con su matriz de modelo, sin modificar los vértices. Orbita al planeta rocoso (tecla **2**) y el z-buffer la oculta cuando pasa detrás.
+
+**Patrones y cómo se combinan:**
+- **Cráteres:** algunas celdas de una malla 3D tienen un cráter de tamaño aleatorio, con hundimiento y borde elevado. Entran a un campo de altura que modifica la normal (bump mapping), por lo que responden a la luz.
+- **Color:** un `fbm` mezcla beige y blanco. Otro `fbm` de baja frecuencia forma zonas más oscuras tipo "mares". Los fondos de los cráteres son un poco más oscuros.
+- **Grano fino** de roca con ruido de alta frecuencia.
+
+**Parámetros:**
+
+| Parámetro | Efecto visual |
+|---|---|
+| `CRATER_SCALE` / `CRATER_DENSITY` | tamaño y cantidad de cráteres |
+| `BUMP_STRENGTH` (en `moon.rs`) | profundidad de los cráteres |
+| `MOON_SIZE` / `MOON_ORBIT` / `MOON_SPEED` (en `main.rs`) | tamaño, radio y velocidad de la órbita |
+
+![](capturas/rocoso_luna.gif)
+
 ## Efectos implementados
 
-### Material animado (5): Estrella
+### Material animado: Estrella
 
 - **Implementación:** `src/shaders/star.rs`, `crystal_star` y `sparkle_at`.
 - **Funcionamiento:** el plasma interno se desplaza con el tiempo y cada faceta tiene un destello con su propia fase y velocidad. La esfera no se mueve.
@@ -132,7 +155,7 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 
 ![](capturas/estrella_animada.gif)
 
-### Parallax dependiente de la vista (15): Estrella
+### Parallax dependiente de la vista: Estrella
 
 - **Implementación:** `src/shaders/star.rs`, `crystal_star`.
 - **Funcionamiento:** un campo de altura `fbm` define la profundidad del interior. El punto donde se calculan las vetas y el plasma se desplaza según la componente tangente de la vista, dividida entre `n·v`. Al mover la cámara, el interior se desliza respecto de la superficie. En el video el tiempo está detenido: solo se mueve la cámara.
@@ -140,7 +163,7 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 
 ![](capturas/estrella_parallax.gif)
 
-### Apariencia de día y noche (5): Planeta rocoso
+### Apariencia de día y noche: Planeta rocoso
 
 - **Implementación:** `src/shaders/rocky.rs`, `volcanic`.
 - **Funcionamiento:** un factor `night`, que vale 1 donde no llega la luz, activa una red de grietas incandescentes (los cruces por cero de un ruido). Las grietas solo se ven en el lado nocturno.
@@ -148,7 +171,7 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 
 ![](capturas/rocoso_luz.gif)
 
-### Respuestas diferentes a la iluminación (10): Planeta rocoso
+### Respuestas diferentes a la iluminación: Planeta rocoso
 
 - **Implementación:** `src/shaders/rocky.rs`, `volcanic`.
 - **Funcionamiento:** cada material responde distinto a la luz:
@@ -158,7 +181,7 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 - En el video de arriba, el reflejo recorre la obsidiana al girar la luz.
 - **Parámetro:** `OBSIDIAN_SHININESS`. Más alto, el reflejo es más pequeño y vidrioso.
 
-### Nubes procedurales (10): Planeta rocoso
+### Nubes procedurales: Planeta rocoso
 
 - **Implementación:** `src/shaders/rocky.rs`, `cloud_mask` y `volcanic`.
 - **Funcionamiento:** la máscara de nubes es un `fbm` que gira a su propia velocidad, independiente del terreno, y cambia de forma con una deformación lenta. Se mezcla sobre la superficie en la misma esfera.
@@ -166,13 +189,13 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 
 ![](capturas/rocoso_nubes.gif)
 
-### Sombras de nubes (20): Planeta rocoso
+### Sombras de nubes: Planeta rocoso
 
 - **Implementación:** `src/shaders/rocky.rs`, `volcanic`.
 - **Funcionamiento:** la misma `cloud_mask` se evalúa en el punto `p + l · CLOUD_HEIGHT / (n·l)`, que es la nube que tapa la luz sobre `p`. Por eso la sombra tiene la forma de las nubes, se mueve con ellas y se desplaza según la dirección de la luz (videos de nubes y de luz).
 - **Parámetro:** `CLOUD_HEIGHT`. Más alto, la sombra se separa más de su nube.
 
-### Tormenta o vórtice localizado (10): Gigante gaseoso
+### Tormenta o vórtice localizado: Gigante gaseoso
 
 - **Implementación:** `src/shaders/gas_giant.rs`, `vortex` y `coca_giant`.
 - **Funcionamiento:** antes de calcular las bandas, las coordenadas se rotan alrededor del centro de la tormenta (fórmula de Rodrigues). El ángulo es mayor cerca del centro y cae a cero en `STORM_RADIUS`, así las bandas se curvan en espiral hacia el ojo.
@@ -180,7 +203,7 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 
 ![](capturas/gaseoso_animado.gif)
 
-### Relieve procedural mediante bump mapping (15): Planeta rocoso
+### Relieve procedural mediante bump mapping: Planeta rocoso
 
 - **Implementación:** `src/shaders/rocky.rs`, `height` y `volcanic`.
 - **Funcionamiento:** un campo de altura (conos volcánicos, rugosidad `fbm` y grano fino) se evalúa en el punto y en dos desplazamientos tangentes. La pendiente que sale de esas diferencias finitas inclina la normal que se usa para iluminar, sin modificar los vértices.
@@ -189,6 +212,6 @@ Planeta de coca: bandas oscuras que fluyen como líquido, burbujas de gas, espum
 
 ### Extra de diseño: burbujas doradas en el lado oscuro (Gigante gaseoso)
 
-No suma puntos aparte, porque día y noche ya se reclama con el planeta rocoso.
+Usa el mismo principio de día y noche: el brillo solo aparece donde no llega la luz.
 
 ![](capturas/gaseoso_luz.gif)
