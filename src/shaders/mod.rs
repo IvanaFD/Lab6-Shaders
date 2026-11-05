@@ -1,4 +1,5 @@
 pub mod gas_giant;
+pub mod moon;
 pub mod noise_helpers;
 pub mod rocky;
 pub mod star;
@@ -12,6 +13,7 @@ pub enum Body {
     Star,
     Rocky,
     GasGiant,
+    Moon,
 }
 
 impl Body {
@@ -20,6 +22,7 @@ impl Body {
             Body::Star => "Estrella",
             Body::Rocky => "Planeta rocoso",
             Body::GasGiant => "Gigante gaseoso",
+            Body::Moon => "Luna",
         }
     }
 }
@@ -33,10 +36,11 @@ pub fn smoothstep(start: f32, end: f32, value: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
-    match uniforms.body {
+pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms, body: Body) -> Vector3 {
+    match body {
         Body::Star => star::crystal_star(fragment, uniforms),
         Body::Rocky => rocky::volcanic(fragment, uniforms),
         Body::GasGiant => gas_giant::coca_giant(fragment, uniforms),
+        Body::Moon => moon::pale_moon(fragment, uniforms),
     }
 }
