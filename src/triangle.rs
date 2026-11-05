@@ -4,9 +4,7 @@ use crate::Uniforms;
 use crate::fragment::Fragment;
 use crate::vertex::Vertex;
 
-// Punto en pantalla ajustado a una malla de 1/256 de píxel, en f64.
-// Así la función de arista es exacta y dos triángulos vecinos nunca
-// descartan el mismo píxel (sin grietas entre caras).
+// Punto ajustado a 1/256 de píxel en f64: aristas exactas, sin grietas entre triángulos
 #[derive(Clone, Copy)]
 struct P {
     x: f64,
@@ -40,7 +38,7 @@ fn interpolate(a: Vector3, b: Vector3, c: Vector3, w: [f32; 3]) -> Vector3 {
     a * w[0] + b * w[1] + c * w[2]
 }
 
-// Relleno con coordenadas baricéntricas; interpola los atributos de cada vértice
+// Relleno con coordenadas baricéntricas
 pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, uniforms: &Uniforms) -> Vec<Fragment> {
     let mut fragments = Vec::new();
 
@@ -68,7 +66,7 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, uniforms: &Uniforms) -> V
     let top_left_ca = is_top_left(c, a);
     let top_left_ab = is_top_left(a, b);
 
-    // Bounding box recortada a la pantalla
+    // Bounding box
     let max_w = uniforms.width as i32;
     let max_h = uniforms.height as i32;
     let min_x = (a.x.min(b.x).min(c.x).floor() as i32).max(0);
@@ -96,7 +94,6 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, uniforms: &Uniforms) -> V
             let l = [(w1 / area) as f32, (w2 / area) as f32, (w3 / area) as f32];
             let depth = l[0] * za + l[1] * zb + l[2] * zc;
 
-            // Perspectiva correcta: pesar con 1/w y normalizar
             let pw = [
                 l[0] * verts[0].inv_w,
                 l[1] * verts[1].inv_w,

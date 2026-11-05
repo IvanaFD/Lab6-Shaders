@@ -7,7 +7,6 @@ pub struct Framebuffer {
     background_color: Vector3,
     // RGBA, 4 bytes por píxel
     color_buffer: Vec<u8>,
-    // Profundidad en NDC: menor es más cerca
     pub depths: Vec<f32>,
     texture: Option<Texture2D>,
 }
@@ -56,7 +55,6 @@ impl Framebuffer {
         self.texture = window.load_texture_from_image(thread, &image).ok();
     }
 
-    // Sube el buffer a la textura y lo dibuja; encima va el texto de ayuda
     pub fn swap_buffers(&mut self, window: &mut RaylibHandle, thread: &RaylibThread, hud: &[String]) {
         let Some(texture) = self.texture.as_mut() else {
             return;

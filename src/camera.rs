@@ -1,6 +1,5 @@
 use raylib::prelude::*;
 
-// Cámara que orbita alrededor de un punto
 pub struct OrbitCamera {
     pub target: Vector3,
     pub yaw: f32,

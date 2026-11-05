@@ -1,17 +1,14 @@
 use noise::{NoiseFn, OpenSimplex};
 use raylib::prelude::*;
 
-// Ruido OpenSimplex en [-1, 1]
 pub fn sample(noise: &OpenSimplex, position: Vector3) -> f32 {
     noise.get([position.x as f64, position.y as f64, position.z as f64]) as f32
 }
 
-// Suma de octavas (fractal Brownian motion), resultado en [0, 1]
 pub fn fbm(noise: &OpenSimplex, position: Vector3) -> f32 {
     fbm_octaves(noise, position, 4)
 }
 
-// fbm con menos octavas: para detalles finos, más barato
 pub fn fbm_octaves(noise: &OpenSimplex, mut position: Vector3, octaves: u32) -> f32 {
     let mut value = 0.0;
     let mut amplitude = 0.5;
@@ -25,7 +22,6 @@ pub fn fbm_octaves(noise: &OpenSimplex, mut position: Vector3, octaves: u32) -> 
     value / weight * 0.5 + 0.5
 }
 
-// Número pseudoaleatorio en [0, 1) a partir de una celda entera
 pub fn hash(cell: Vector3, seed: f32) -> f32 {
     let d = cell.x * 127.1 + cell.y * 311.7 + cell.z * 74.7 + seed * 53.3;
     (d.sin() * 43758.547).fract().abs()
@@ -35,7 +31,6 @@ pub fn hash3(cell: Vector3) -> Vector3 {
     Vector3::new(hash(cell, 0.0), hash(cell, 1.0), hash(cell, 2.0))
 }
 
-// Ruido celular (Voronoi): distancia al punto más cercano, al segundo, y la celda ganadora
 pub fn cellular(p: Vector3) -> (f32, f32, Vector3) {
     let base = Vector3::new(p.x.floor(), p.y.floor(), p.z.floor());
     let mut f1 = f32::MAX;

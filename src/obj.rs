@@ -10,9 +10,7 @@ pub struct Obj {
 }
 
 impl Obj {
-    // Vértices en el orden de las caras, de tres en tres.
-    // La normal es la dirección desde el centro: la esfera se ilumina suave
-    // aunque el archivo traiga normales planas por cara.
+    // Vértices en el orden de las caras, de tres en tres
     pub fn get_vertex_array(&self, center: Vector3) -> Vec<Vertex> {
         self.indices
             .iter()

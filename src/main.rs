@@ -27,13 +27,11 @@ pub struct Uniforms {
     pub height: usize,
     pub time: f32,
     pub noise: OpenSimplex,
-    // Dirección hacia la luz (normalizada), en el mundo
     pub light_dir: Vector3,
     pub camera_position: Vector3,
     pub body: Body,
 }
 
-// Pipeline: vertex shader -> triángulos -> fragmentos -> prueba de profundidad -> fragment shader
 fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniforms) {
     framebuffer.clear();
     let transformed: Vec<Vertex> = vertices
@@ -41,7 +39,6 @@ fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniform
         .map(|v| pipeline::vertex_shader(v, uniforms))
         .collect();
 
-    // 1. Rasterizar y quedarse con el fragmento más cercano de cada píxel
     let mut visible: Vec<(usize, fragment::Fragment)> = Vec::new();
     for tri in transformed.chunks_exact(3) {
         if pipeline::is_back_face(tri, uniforms) {
@@ -55,10 +52,8 @@ fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniform
             }
         }
     }
-    // Solo se sombrean los que siguen visibles después de la prueba de profundidad
     visible.retain(|(index, fragment)| fragment.depth == framebuffer.depths[*index]);
 
-    // 2. Fragment shader en paralelo: cada hilo sombrea un bloque de fragmentos
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let chunk = visible.len().div_ceil(threads).max(1);
     let colors: Vec<Vec<Vector3>> = std::thread::scope(|scope| {
@@ -73,7 +68,6 @@ fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniform
     }
 }
 
-// Luz que gira alrededor del eje y con una inclinación fija
 fn light_direction(angle: f32) -> Vector3 {
     Vector3::new(angle.sin(), 0.35, angle.cos()).normalized()
 }
@@ -87,7 +81,6 @@ fn main() {
         }
     };
 
-    // Centrar en el origen y escalar a radio 1
     let (center, _) = obj.bounds();
     let radius = obj.radius(center);
     let vertices = obj.get_vertex_array(center);
@@ -117,7 +110,6 @@ fn main() {
         body: Body::Star,
     };
 
-    // Capturas sin abrir ventana: cada cuerpo en capturas/<cuerpo>.png
     if std::env::args().any(|arg| arg == "--captura") {
         let _ = std::fs::create_dir_all("capturas");
         uniforms.time = 3.0;
@@ -127,7 +119,6 @@ fn main() {
             (Body::GasGiant, "gaseoso"),
         ] {
             uniforms.body = body;
-            // De frente a la luz y con la luz de costado (para ver el lado oscuro)
             for (angle, suffix) in [(light_angle, ""), (2.2, "_lado_oscuro")] {
                 uniforms.light_dir = light_direction(angle);
                 let start = std::time::Instant::now();
@@ -154,7 +145,6 @@ fn main() {
     while !window.window_should_close() {
         let dt = window.get_frame_time();
 
-        // Selección de cuerpo
         if window.is_key_pressed(KeyboardKey::KEY_ONE) {
             uniforms.body = Body::Star;
         }
@@ -165,7 +155,6 @@ fn main() {
             uniforms.body = Body::GasGiant;
         }
 
-        // Cámara: flechas o WASD orbitan, Q/E zoom, R reinicia
         let step = 1.5 * dt;
         if window.is_key_down(KeyboardKey::KEY_LEFT) || window.is_key_down(KeyboardKey::KEY_A) {
             camera.orbit(-step, 0.0);
@@ -190,7 +179,6 @@ fn main() {
             light_angle = 0.6;
         }
 
-        // Luz: J/L la giran alrededor del planeta
         if window.is_key_down(KeyboardKey::KEY_J) {
             light_angle -= step;
         }
@@ -198,7 +186,6 @@ fn main() {
             light_angle += step;
         }
 
-        // Tiempo: espacio pausa
         if window.is_key_pressed(KeyboardKey::KEY_SPACE) {
             paused = !paused;
         }
