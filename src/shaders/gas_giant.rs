@@ -12,7 +12,7 @@ const FLOW_SPEED: f32 = 0.12;
 const BUBBLE_SCALE: f32 = 9.0;
 const BUBBLE_RISE: f32 = 0.35;
 const BUBBLE_DENSITY: f32 = 0.75;
-const BUBBLE_SOFTNESS: f32 = 0.085;
+const BUBBLE_SOFTNESS: f32 = 0.14;
 const STORM_RADIUS: f32 = 0.38;
 const STORM_STRENGTH: f32 = 5.0;
 const GLOW_STRENGTH: f32 = 1.3;
@@ -56,8 +56,8 @@ fn bubbles(p: Vector3, time: f32) -> (f32, f32, f32) {
     let fade = 1.0 - smoothstep(0.85, 1.0, life);
     let d = (f1 - radius) / BUBBLE_SOFTNESS;
     let ring = (-d * d).exp() * fade;
-    let interior = (1.0 - smoothstep(radius * 0.3, radius * 1.05, f1)) * fade;
-    let halo = (1.0 - smoothstep(radius * 0.8, radius + 0.25, f1)) * fade;
+    let interior = (1.0 - smoothstep(0.0, radius * 1.2, f1)) * fade;
+    let halo = (1.0 - smoothstep(0.0, radius + 0.3, f1)) * fade;
     (ring, interior, halo)
 }
 
@@ -90,8 +90,8 @@ pub fn coca_giant(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
 
     let (ring, interior, halo) = bubbles(p, time);
     let bubble_zone = 1.0 - foam;
-    color = mix(color, COCA_BLACK, interior * 0.45 * bubble_zone);
-    color = mix(color, WHITE * 0.9, ring * 0.6 * bubble_zone);
+    color = mix(color, COCA_BLACK, interior * 0.25 * bubble_zone);
+    color = mix(color, WHITE * 0.85, (ring * 0.3 + halo * 0.12) * bubble_zone);
 
     let longitude = p.z.atan2(p.x);
     let label = 1.0 - smoothstep(LABEL_WIDTH - 0.01, LABEL_WIDTH, p.y.abs());
@@ -108,6 +108,6 @@ pub fn coca_giant(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let lit = color * (0.06 + diffuse * 0.94) + Vector3::new(1.0, 0.95, 0.9) * specular + CARAMEL * rim * (0.2 + diffuse * 0.5);
 
     let night = 1.0 - smoothstep(-0.05, 0.25, n.dot(light));
-    let glow = (ring * 0.9 + interior * 0.3 + halo * 0.3) * bubble_zone * (1.0 - label);
+    let glow = (ring * 0.5 + interior * 0.35 + halo * 0.35) * bubble_zone * (1.0 - label);
     lit + GOLD * glow * night * GLOW_STRENGTH
 }
