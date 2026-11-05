@@ -7,11 +7,16 @@ pub fn sample(noise: &OpenSimplex, position: Vector3) -> f32 {
 }
 
 // Suma de octavas (fractal Brownian motion), resultado en [0, 1]
-pub fn fbm(noise: &OpenSimplex, mut position: Vector3) -> f32 {
+pub fn fbm(noise: &OpenSimplex, position: Vector3) -> f32 {
+    fbm_octaves(noise, position, 4)
+}
+
+// fbm con menos octavas: para detalles finos, más barato
+pub fn fbm_octaves(noise: &OpenSimplex, mut position: Vector3, octaves: u32) -> f32 {
     let mut value = 0.0;
     let mut amplitude = 0.5;
     let mut weight = 0.0;
-    for _ in 0..4 {
+    for _ in 0..octaves {
         value += sample(noise, position) * amplitude;
         weight += amplitude;
         position = position * 2.0;

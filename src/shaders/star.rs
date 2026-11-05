@@ -2,7 +2,7 @@
 // vetas internas con profundidad (parallax), destellos que parpadean y un aura en el borde.
 use super::{
     mix,
-    noise_helpers::{cellular, fbm, hash, hash3},
+    noise_helpers::{cellular, fbm_octaves, hash, hash3},
     smoothstep,
 };
 use crate::{Uniforms, fragment::Fragment};
@@ -37,9 +37,8 @@ fn iridescent(hue: f32) -> Vector3 {
     mix(rainbow, WHITE, 0.35)
 }
 
-// Destello de una capa de celdas: cada celda parpadea con su propio ritmo
-fn sparkle_layer(p: Vector3, scale: f32, time: f32, seed: f32) -> f32 {
-    let (f1, _, id) = cellular(p * scale);
+// Destello de una celda: cada celda parpadea con su propio ritmo cerca de su centro
+fn sparkle_at(f1: f32, id: Vector3, time: f32, seed: f32) -> f32 {
     let phase = hash(id, seed) * std::f32::consts::TAU;
     let speed = SPARKLE_SPEED * (0.5 + hash(id, seed + 2.0));
     let twinkle = (time * speed + phase).sin().max(0.0).powf(10.0);
@@ -57,15 +56,15 @@ pub fn crystal_star(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
 
     // 1. Parallax: el interior "vive" debajo de la superficie. Se desplaza el punto de
     //    muestreo en contra de la vista, según un campo de altura procedural.
-    let height = fbm(&uniforms.noise, p * 2.5);
+    let height = fbm_octaves(&uniforms.noise, p * 2.5, 3);
     let view_tangent = view - n * view.dot(n);
     let inner = p - view_tangent * (PARALLAX_DEPTH * (1.0 - height) / n_dot_v.max(0.35));
 
     // 2. Superficie activa: plasma interno que fluye con el tiempo (zonas más calientes)
     let drift = Vector3::new(time * 0.15, -time * 0.1, time * 0.08);
-    let plasma = fbm(&uniforms.noise, inner * 3.0 + drift);
+    let plasma = fbm_octaves(&uniforms.noise, inner * 3.0 + drift, 3);
     let heat = smoothstep(0.35, 0.75, plasma);
-    let veins = 1.0 - (fbm(&uniforms.noise, inner * 4.0 - drift * 0.5) * 2.0 - 1.0).abs();
+    let veins = 1.0 - (fbm_octaves(&uniforms.noise, inner * 4.0 - drift * 0.5, 3) * 2.0 - 1.0).abs();
     let veins = smoothstep(0.85, 0.98, veins);
     let body = mix(DEEP, ICE, heat);
     let body = mix(body, WHITE, veins * 0.6 + heat * heat * 0.2);
@@ -87,7 +86,9 @@ pub fn crystal_star(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let reflection = tint * (specular * 1.4 + glint);
 
     // 5. Destellos (animados): facetas grandes + brillo fino
-    let sparkle = sparkle_layer(p, FACET_SCALE, time, 7.0) + sparkle_layer(p, 13.0, time * 1.3, 11.0) * 0.8;
+    // (la capa grande reutiliza las celdas de las facetas)
+    let (fine_f1, _, fine_id) = cellular(p * 13.0);
+    let sparkle = sparkle_at(f1, id, time, 7.0) + sparkle_at(fine_f1, fine_id, time * 1.3, 11.0) * 0.8;
     let sparkle_color = mix(WHITE, iridescent(hash(id, 5.0)), 0.3);
 
     // 6. Aura: resplandor tipo Fresnel en el borde de la silueta

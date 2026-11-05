@@ -107,12 +107,6 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, uniforms: &Uniforms) -> V
 
             let object_position =
                 interpolate(verts[0].position, verts[1].position, verts[2].position, pw).normalized();
-            let world_position = interpolate(
-                verts[0].world_position,
-                verts[1].world_position,
-                verts[2].world_position,
-                pw,
-            );
             let normal = interpolate(
                 verts[0].world_normal,
                 verts[1].world_normal,
@@ -126,7 +120,6 @@ pub fn triangle(v1: &Vertex, v2: &Vertex, v3: &Vertex, uniforms: &Uniforms) -> V
                 position: Vector2::new(x as f32, y as f32),
                 depth,
                 object_position,
-                world_position,
                 normal,
                 intensity,
             });

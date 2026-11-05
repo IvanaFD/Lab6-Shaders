@@ -1,3 +1,4 @@
+pub mod gas_giant;
 pub mod noise_helpers;
 pub mod rocky;
 pub mod star;
@@ -37,14 +38,8 @@ pub fn smoothstep(start: f32, end: f32, value: f32) -> f32 {
 // Punto de entrada: elige el shader según el cuerpo activo
 pub fn fragment_shader(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     match uniforms.body {
-        Body::Star => return star::crystal_star(fragment, uniforms),
-        Body::Rocky => return rocky::volcanic(fragment, uniforms),
-        _ => {}
+        Body::Star => star::crystal_star(fragment, uniforms),
+        Body::Rocky => rocky::volcanic(fragment, uniforms),
+        Body::GasGiant => gas_giant::cola_giant(fragment, uniforms),
     }
-    let base = match uniforms.body {
-        Body::Star => Vector3::new(1.0, 0.7, 0.2),
-        Body::Rocky => Vector3::new(0.3, 0.6, 0.4),
-        Body::GasGiant => Vector3::new(0.8, 0.6, 0.4),
-    };
-    base * (0.1 + fragment.intensity * 0.9)
 }

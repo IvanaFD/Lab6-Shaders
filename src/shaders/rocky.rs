@@ -2,7 +2,7 @@
 // grietas incandescentes en el lado nocturno y nubes de ceniza con sus sombras.
 use super::{
     mix,
-    noise_helpers::{fbm, hash, hash3, sample},
+    noise_helpers::{fbm, fbm_octaves, hash, hash3, sample},
     smoothstep,
 };
 use crate::{Uniforms, fragment::Fragment};
@@ -74,30 +74,41 @@ fn terrain(noise: &OpenSimplex, p: Vector3) -> f32 {
     fbm(noise, p * 1.8 + warp)
 }
 
-// Ríos de lava: el cauce sigue la línea media de un fbm deformado (fractal, se ramifica);
-// el ancho cambia a lo largo del río y crece al acercarse al mar de lava.
-// Devuelve cuánto río hay en el punto, en [0, 1].
-fn river(noise: &OpenSimplex, p: Vector3, land: f32, extra: f32) -> f32 {
+// Ríos de lava: el cauce sigue la línea media de un fbm deformado (fractal, se ramifica).
+// Se calcula una sola vez por píxel: (cauce principal, afluentes, variación de ancho).
+struct RiverField {
+    main: f32,
+    branch: f32,
+    width_noise: f32,
+}
+
+fn river_field(noise: &OpenSimplex, p: Vector3) -> RiverField {
     let warp = Vector3::new(sample(noise, p * 2.2 + Vector3::new(9.0, 0.0, 0.0)), 0.0, sample(noise, p * 2.2 - Vector3::new(0.0, 4.0, 0.0))) * 0.3;
-    let main = (fbm(noise, p * 2.4 + warp) - 0.5).abs();
-    let branch = (fbm(noise, p * 5.0 + warp * 2.0 + Vector3::new(2.0, 2.0, 2.0)) - 0.5).abs();
-    let width = (RIVER_WIDTH + extra) * (0.5 + fbm(noise, p * 4.0)) * (1.0 + 1.5 * (1.0 - smoothstep(0.0, 0.08, land)));
+    RiverField {
+        main: (fbm_octaves(noise, p * 2.4 + warp, 3) - 0.5).abs(),
+        branch: (fbm_octaves(noise, p * 5.0 + warp * 2.0 + Vector3::new(2.0, 2.0, 2.0), 2) - 0.5).abs(),
+        width_noise: fbm_octaves(noise, p * 4.0, 2),
+    }
+}
+
+// Cuánto río hay en el punto, en [0, 1]. El ancho cambia a lo largo del río y crece
+// al acercarse al mar de lava; `extra` ensancha (se usa para la orilla de obsidiana).
+fn river(field: &RiverField, land: f32, extra: f32) -> f32 {
+    let width = (RIVER_WIDTH + extra) * (0.5 + field.width_noise) * (1.0 + 1.5 * (1.0 - smoothstep(0.0, 0.08, land)));
     // los ríos nacen en tierras medias y no suben a las zonas altas
     let fade = 1.0 - smoothstep(0.08, 0.16, land);
     let branch_fade = 1.0 - smoothstep(0.03, 0.09, land);
-    let main_river = 1.0 - smoothstep(width * 0.6, width, main);
-    let side_river = 1.0 - smoothstep(width * 0.3, width * 0.5, branch);
+    let main_river = 1.0 - smoothstep(width * 0.6, width, field.main);
+    let side_river = 1.0 - smoothstep(width * 0.3, width * 0.5, field.branch);
     (main_river * fade).max(side_river * branch_fade)
 }
 
-// Campo de altura: terreno + conos volcánicos con cráter - cauces de los ríos
+// Campo de altura para el relieve: conos volcánicos con cráter + rugosidad de la roca.
+// (El terreno de los continentes es de baja frecuencia: casi no aporta relieve visible,
+// así que se deja fuera para que el bump sea barato.)
 fn height(noise: &OpenSimplex, p: Vector3) -> f32 {
-    let t = terrain(noise, p);
-    let land = t - LAVA_LEVEL;
     let (cone, crater) = volcano(p);
-    let on_land = smoothstep(0.02, 0.08, land);
-    let channel = river(noise, p, land, 0.0);
-    t * 0.8 + (cone.powf(1.5) * 0.5 - crater * 0.3) * on_land - channel * 0.04
+    cone.powf(1.5) * 0.5 - crater * 0.3 + fbm_octaves(noise, p * 5.0, 2) * 0.15
 }
 
 // Gira un punto alrededor del eje y
@@ -111,7 +122,7 @@ fn cloud_mask(noise: &OpenSimplex, p: Vector3, time: f32) -> f32 {
     let q = rotate_y(p, time * CLOUD_SPEED);
     // deformación lenta para que cambien de forma
     let warp = Vector3::new(0.0, sample(noise, q * 1.5 + Vector3::new(time * 0.05, 0.0, 0.0)) * 0.3, 0.0);
-    let density = fbm(noise, q * Vector3::new(2.2, 4.0, 2.2) + warp);
+    let density = fbm_octaves(noise, q * Vector3::new(2.2, 4.0, 2.2) + warp, 3);
     let threshold = 0.72 - CLOUD_COVERAGE * 0.4;
     smoothstep(threshold, threshold + 0.08, density)
 }
@@ -152,23 +163,25 @@ pub fn volcanic(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     let crater = crater * on_land;
     //    Lava: mares y lagos en lo bajo, ríos que bajan hacia ellos y el interior de los cráteres
     let sea = 1.0 - smoothstep(-0.005, 0.005, land);
-    let stream = river(noise, p, land, 0.0);
+    let rivers = river_field(noise, p);
+    let stream = river(&rivers, land, 0.0);
     let lava_amount = sea.max(stream).max(smoothstep(0.6, 0.9, crater));
     //    Obsidiana: lava enfriada en las costas (ancho irregular), orillas de ríos y cráteres
-    let coast_width = OBSIDIAN_WIDTH * (0.4 + fbm(noise, p * 6.0) * 1.2);
+    let grain = fbm_octaves(noise, p * 6.0, 3);
+    let coast_width = OBSIDIAN_WIDTH * (0.4 + grain * 1.2);
     let near_sea = 1.0 - smoothstep(coast_width * 0.5, coast_width, land);
-    let near_river = river(noise, p, land, OBSIDIAN_WIDTH * 0.35);
+    let near_river = river(&rivers, land, OBSIDIAN_WIDTH * 0.35);
     let obsidian_amount = near_sea.max(near_river).max(smoothstep(0.2, 0.5, crater));
     let hills = t + 0.5 - LAVA_LEVEL;
     //    Ceniza: cubre las partes altas y las laderas de los volcanes
-    let ash_amount = smoothstep(0.45, 0.6, hills + fbm(noise, p * 9.0) * 0.3 - 0.12);
+    let ash_amount = smoothstep(0.45, 0.6, hills + fbm_octaves(noise, p * 9.0, 2) * 0.3 - 0.12);
 
     // 3. Cada material responde distinto a la luz
     // Piedra y ceniza: mate (solo difusa)
-    let rock = mix(DARK_ROCK, STONE, smoothstep(0.4, 0.7, fbm(noise, p * 6.0)));
+    let rock = mix(DARK_ROCK, STONE, smoothstep(0.4, 0.7, grain));
     let rock = mix(rock, ASH, ash_amount);
     // Laderas de los volcanes: basalto oscuro con vetas de ceniza que bajan del cráter
-    let streaks = smoothstep(0.55, 0.75, fbm(noise, p * 14.0));
+    let streaks = smoothstep(0.55, 0.75, fbm_octaves(noise, p * 14.0, 2));
     let rock = mix(rock, mix(DARK_ROCK * 0.7, ASH, streaks * 0.6), smoothstep(0.1, 0.5, cone));
     let rock_lit = rock * (0.04 + diffuse * 0.96);
     // Obsidiana: casi negra, reflejo especular nítido + reflejo de borde (Fresnel)
@@ -184,7 +197,7 @@ pub fn volcanic(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
     surface = surface * (1.0 - shadow * 0.75);
 
     // 5. Lava: emisiva (no depende de la luz); su corteza fluye con el tiempo
-    let flow = fbm(noise, p * 7.0 + Vector3::new(time * 0.12, time * 0.05, -time * 0.08));
+    let flow = fbm_octaves(noise, p * 7.0 + Vector3::new(time * 0.12, time * 0.05, -time * 0.08), 3);
     let lava_color = mix(CRUST, LAVA, smoothstep(0.35, 0.6, flow));
     let lava_color = mix(lava_color, LAVA_HOT, smoothstep(0.62, 0.8, flow));
     surface = mix(surface, lava_color, lava_amount);
@@ -200,9 +213,9 @@ pub fn volcanic(fragment: &Fragment, uniforms: &Uniforms) -> Vector3 {
 
     // 7. Nubes de ceniza encima; de noche las ilumina el resplandor de la lava
     let clouds = cloud_mask(noise, p, time);
-    let cloud_light = n.dot(light).max(0.0);
+    let cloud_light = fragment.intensity;
     // tonos de gris: humo más oscuro donde la nube es más espesa
-    let thickness = smoothstep(0.4, 0.8, fbm(noise, rotate_y(p, time * CLOUD_SPEED) * 6.0));
+    let thickness = smoothstep(0.4, 0.8, fbm_octaves(noise, rotate_y(p, time * CLOUD_SPEED) * 6.0, 2));
     let cloud_color = mix(CLOUD, SMOKE, thickness) * (0.05 + cloud_light * 0.9) + LAVA * (lava_amount * 0.25 + night * 0.04);
     mix(surface, cloud_color, clouds * 0.9)
 }

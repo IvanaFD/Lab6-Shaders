@@ -6,7 +6,6 @@ pub struct Fragment {
     pub depth: f32,
     // Punto de la esfera unitaria (dirección desde el centro): base de los patrones
     pub object_position: Vector3,
-    pub world_position: Vector3,
     // Normal en el mundo, normalizada
     pub normal: Vector3,
     // Iluminación difusa que da el renderer: max(dot(normal, luz), 0)

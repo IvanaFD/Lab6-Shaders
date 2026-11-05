@@ -40,6 +40,9 @@ fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniform
         .iter()
         .map(|v| pipeline::vertex_shader(v, uniforms))
         .collect();
+
+    // 1. Rasterizar y quedarse con el fragmento más cercano de cada píxel
+    let mut visible: Vec<(usize, fragment::Fragment)> = Vec::new();
     for tri in transformed.chunks_exact(3) {
         if pipeline::is_back_face(tri, uniforms) {
             continue;
@@ -48,9 +51,25 @@ fn render(framebuffer: &mut Framebuffer, vertices: &[Vertex], uniforms: &Uniform
             let index = fragment.position.y as usize * framebuffer.width + fragment.position.x as usize;
             if fragment.depth < framebuffer.depths[index] {
                 framebuffer.depths[index] = fragment.depth;
-                framebuffer.set_color(index, fragment_shader(&fragment, uniforms));
+                visible.push((index, fragment));
             }
         }
+    }
+    // Solo se sombrean los que siguen visibles después de la prueba de profundidad
+    visible.retain(|(index, fragment)| fragment.depth == framebuffer.depths[*index]);
+
+    // 2. Fragment shader en paralelo: cada hilo sombrea un bloque de fragmentos
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let chunk = visible.len().div_ceil(threads).max(1);
+    let colors: Vec<Vec<Vector3>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = visible
+            .chunks(chunk)
+            .map(|part| scope.spawn(move || part.iter().map(|(_, f)| fragment_shader(f, uniforms)).collect()))
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for ((index, _), color) in visible.iter().zip(colors.into_iter().flatten()) {
+        framebuffer.set_color(*index, color);
     }
 }
 
@@ -108,8 +127,16 @@ fn main() {
             (Body::GasGiant, "gaseoso"),
         ] {
             uniforms.body = body;
-            render(&mut framebuffer, &vertices, &uniforms);
-            framebuffer.render_to_file(&format!("capturas/{file}.png"));
+            // De frente a la luz y con la luz de costado (para ver el lado oscuro)
+            for (angle, suffix) in [(light_angle, ""), (2.2, "_lado_oscuro")] {
+                uniforms.light_dir = light_direction(angle);
+                let start = std::time::Instant::now();
+                render(&mut framebuffer, &vertices, &uniforms);
+                if suffix.is_empty() {
+                    println!("{}: {:.1} ms", body.name(), start.elapsed().as_secs_f32() * 1000.0);
+                }
+                framebuffer.render_to_file(&format!("capturas/{file}{suffix}.png"));
+            }
         }
         println!("Capturas guardadas en capturas/");
         return;
